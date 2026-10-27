@@ -16,5 +16,5 @@ func (*pluginRegistry) Init() error { return nil }
 // Components returns the node prototypes this plugin registers. The host
 // calls New() on each per chain instance.
 func (*pluginRegistry) Components() []types.Node {
-	return []types.Node{}
+	return []types.Node{&elasticsearchWriteNode{}}
 }
