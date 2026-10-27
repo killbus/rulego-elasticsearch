@@ -1,0 +1,22 @@
+{
+  "ruleChain": {
+    "id": "elasticsearch-write-smoke",
+    "name": "Elasticsearch Write ref smoke",
+    "root": true
+  },
+  "metadata": {
+    "firstNodeIndex": 0,
+    "nodes": [
+      {
+        "id": "borrower",
+        "type": "elasticsearchWrite",
+        "configuration": {"server": "ref://es"}
+      },
+      {"id": "end", "type": "end", "configuration": {}}
+    ],
+    "connections": [
+      {"fromId": "borrower", "toId": "end", "type": "Success"},
+      {"fromId": "borrower", "toId": "end", "type": "Failure"}
+    ]
+  }
+}

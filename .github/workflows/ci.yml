@@ -1,0 +1,195 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      # actions/setup-go v5.6.0
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify release metadata
+        run: |
+          set -euo pipefail
+          test "$(jq -er .pluginVersion compatibility.json)" = "$(cat VERSION)"
+          test "$(jq -er .pluginAbiRelease compatibility.json)" = plugin-abi-release.json
+          grep -Eq "componentVersion[[:space:]]*= \"$(cat VERSION)\"" node.go
+          jq -e '
+            (.abi_id | test("^abi-[0-9a-f]{64}$")) and
+            (.lock_digest | test("^sha256:[0-9a-f]{64}$")) and
+            (.packaging_revision | test("^[0-9a-f]{40}$")) and
+            (.sdk | test("^ghcr\\.io/killbus/rulego-plugin-sdk@sha256:[0-9a-f]{64}$")) and
+            (.runtime | test("^ghcr\\.io/killbus/rulego-server@sha256:[0-9a-f]{64}$"))
+          ' plugin-abi-release.json
+          jq -e . testdata/*.json >/dev/null
+      - run: go mod download
+      - name: Verify source module identity
+        run: test "$(go list -m)" = "github.com/killbus/rulego-elasticsearch"
+      - name: Formatting
+        run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go test -race ./...
+
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+            machine: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+            machine: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          path: plugin
+      - name: Read immutable Plugin ABI release
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = "${{ matrix.machine }}"
+          jq -e '
+            (.abi_id | test("^abi-[0-9a-f]{64}$")) and
+            (.lock_digest | test("^sha256:[0-9a-f]{64}$")) and
+            (.sdk | test("@sha256:[0-9a-f]{64}$")) and
+            (.runtime | test("@sha256:[0-9a-f]{64}$"))
+          ' plugin/plugin-abi-release.json
+          {
+            echo "SDK_REF=$(jq -er .sdk plugin/plugin-abi-release.json)"
+            echo "RUNTIME_REF=$(jq -er .runtime plugin/plugin-abi-release.json)"
+            echo "ABI_ID=$(jq -er .abi_id plugin/plugin-abi-release.json)"
+            echo "LOCK_DIGEST=$(jq -er .lock_digest plugin/plugin-abi-release.json)"
+            echo "PLUGIN_ARTIFACT=elasticsearch-rulego-v$(cat plugin/VERSION)-linux-${{ matrix.arch }}.so"
+          } >> "$GITHUB_ENV"
+      - name: Pull pinned SDK with bounded retry
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if docker pull --platform "linux/${{ matrix.arch }}" "$SDK_REF"; then break; fi
+            test "$attempt" -lt 4
+            sleep $((2 ** attempt))
+          done
+      - name: Build versioned plugin with pinned SDK
+        run: |
+          set -euo pipefail
+          install -d -m 0777 plugin/dist
+          docker run --rm --platform "linux/${{ matrix.arch }}" \
+            -v "$GITHUB_WORKSPACE/plugin:/workspace:ro" \
+            -v "$GITHUB_WORKSPACE/plugin/dist:/output" \
+            "$SDK_REF" . "/output/$PLUGIN_ARTIFACT"
+      - name: Verify SDK sidecars
+        working-directory: plugin/dist
+        run: |
+          set -euo pipefail
+          sha256sum --check "$PLUGIN_ARTIFACT.sha256"
+          plugin_sha256=$(sha256sum "$PLUGIN_ARTIFACT" | awk '{print $1}')
+          jq -e --arg abi "$ABI_ID" --arg lock "$LOCK_DIGEST" \
+            --arg platform "linux/${{ matrix.arch }}" --arg sha "$plugin_sha256" '
+              .abi_id == $abi and .lock_digest == $lock and
+              .platform == $platform and .plugin_sha256 == $sha
+            ' "$PLUGIN_ARTIFACT.abi.json"
+      - name: Verify embedded Go module identity
+        run: |
+          set -euo pipefail
+          mkdir -p plugin/tmp
+          docker run --rm --platform "linux/${{ matrix.arch }}" \
+            -v "$GITHUB_WORKSPACE/plugin/dist:/artifacts:ro" \
+            --entrypoint /usr/local/go/bin/go \
+            "$SDK_REF" version -m "/artifacts/$PLUGIN_ARTIFACT" \
+            > plugin/tmp/module-info.txt
+          awk '$1 == "path" { found = ($2 == "github.com/killbus/rulego-elasticsearch") } END { exit !found }' \
+            plugin/tmp/module-info.txt
+          awk '$1 == "mod" { found = ($2 == "github.com/killbus/rulego-elasticsearch") } END { exit !found }' \
+            plugin/tmp/module-info.txt
+      - name: Pull pinned runtime with bounded retry
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if docker pull --platform "linux/${{ matrix.arch }}" "$RUNTIME_REF"; then break; fi
+            test "$attempt" -lt 4
+            sleep $((2 ** attempt))
+          done
+          test "$(docker image inspect --format '{{ index .Config.Labels "io.rulego.server.release" }}' "$RUNTIME_REF")" = "$(jq -er .rulegoRelease plugin/compatibility.json)"
+      - name: Smoke-load owner and ref borrower
+        run: |
+          set -euo pipefail
+          mkdir -p plugin/tmp/data/plugins
+          cp "plugin/dist/$PLUGIN_ARTIFACT" plugin/tmp/data/plugins/
+          chmod -R a+rwX plugin/tmp/data
+          container="elasticsearch-smoke-${{ matrix.arch }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker run --rm --detach --name "$container" \
+            --platform "linux/${{ matrix.arch }}" -p 127.0.0.1:9090:9090 \
+            -v "$GITHUB_WORKSPACE/plugin/tmp/data:/app/data" \
+            -v "$GITHUB_WORKSPACE/plugin/testdata/smoke-node-pool.json:/app/node_pool.json:ro" \
+            "$RUNTIME_REF"
+          trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 1 100); do
+            if curl --fail --silent http://127.0.0.1:9090/api/v1/components >plugin/tmp/components.json; then break; fi
+            if test "$(docker inspect --format='{{.State.Running}}' "$container")" != true; then
+              docker logs "$container"
+              exit 1
+            fi
+            sleep 0.2
+          done
+          test -s plugin/tmp/components.json || { docker logs "$container"; exit 1; }
+          jq -e '
+            (.nodes | any(.type == "elasticsearchWrite")) and
+            (.builtins.nodePool.elasticsearchWrite | any(.id == "es"))
+          ' plugin/tmp/components.json
+          curl --fail --silent --show-error \
+            -H 'Content-Type: application/json' \
+            --data-binary @plugin/testdata/smoke-borrower-chain.json \
+            http://127.0.0.1:9090/api/v1/rules/elasticsearch-write-smoke >/dev/null
+          curl --fail --silent http://127.0.0.1:9090/api/v1/rules/elasticsearch-write-smoke \
+            | jq -e '
+                ([.metadata.nodes[] |
+                  select(.type == "elasticsearchWrite" and .configuration.server == "ref://es")
+                ] | length) == 1
+              '
+      # actions/upload-artifact v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: plugin-linux-${{ matrix.arch }}
+          path: |
+            plugin/dist/*.so
+            plugin/dist/*.sha256
+            plugin/dist/*.abi.json
+          if-no-files-found: error
+
+  release-metadata:
+    runs-on: ubuntu-24.04
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Collect release metadata
+        run: |
+          mkdir dist
+          cp README.md compatibility.json plugin-abi-release.json dist/
+      # actions/upload-artifact v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-metadata
+          path: dist/
