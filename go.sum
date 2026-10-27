@@ -1,0 +1,4 @@
+github.com/gofrs/uuid/v5 v5.0.0 h1:p544++a97kEL+svbcFbCQVM9KFu0Yo25UoISXGNNH9M=
+github.com/gofrs/uuid/v5 v5.0.0/go.mod h1:CDOjlDMVAtN56jqyRUZh58JT31Tiw7/oQyEXZV+9bD8=
+github.com/rulego/rulego v1.0.0 h1:2dMEtgsPPOfu34n8doTzu51tqp4kptGYp5DI07XRGTI=
+github.com/rulego/rulego v1.0.0/go.mod h1:C+5ohZtTIBNB4l1UY3aVLX+OKAXOHbryRn0I3+no8cs=
