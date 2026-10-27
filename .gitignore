@@ -1,0 +1,7 @@
+tmp/
+dist/
+*.so
+
+# Local secrets; never commit.
+mytoken.txt
+*.token
