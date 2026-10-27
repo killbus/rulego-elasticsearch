@@ -1,0 +1,64 @@
+name: Release tested artifacts
+run-name: Release ${{ inputs.tag }} from CI run ${{ inputs.ci_run_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ci_run_id:
+        description: Successful CI workflow run ID to publish
+        required: true
+        type: string
+      tag:
+        description: Existing release tag, for example vX.Y.Z
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.tag }}
+      - name: Verify source CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.ci_run_id }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          test "$TAG" = "v$(cat VERSION)"
+          test "$(gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json workflowName,conclusion --jq '.workflowName + ":" + .conclusion')" = "CI:success"
+          test "$(gh run view "$RUN_ID" --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = "$(git rev-parse HEAD)"
+      # actions/download-artifact v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: ${{ inputs.ci_run_id }}
+          github-token: ${{ github.token }}
+          pattern: plugin-linux-*
+          merge-multiple: true
+          path: dist
+      # actions/download-artifact v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          run-id: ${{ inputs.ci_run_id }}
+          github-token: ${{ github.token }}
+          name: release-metadata
+          path: dist
+      - name: Verify checksums
+        working-directory: dist
+        run: sha256sum --check ./*.sha256
+      - name: Publish without rebuilding
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --generate-notes

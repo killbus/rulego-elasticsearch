@@ -1,0 +1,18 @@
+{
+  "ruleChain": {
+    "id": "default_node_pool",
+    "name": "Plugin smoke node pool"
+  },
+  "metadata": {
+    "endpoints": [],
+    "nodes": [
+      {
+        "id": "es",
+        "type": "elasticsearchWrite",
+        "configuration": {
+          "server": "http://127.0.0.1:1"
+        }
+      }
+    ]
+  }
+}
