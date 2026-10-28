@@ -52,24 +52,28 @@ type bulkOp struct {
 
 // clientConfig is the node's stable instance policy (the owner form).
 // Borrower nodes carry only Server = ref://<id> and leave the rest zero.
+// The label/desc/required/ref tags drive the RuleGo editor form (extracted
+// by rulego utils/reflect GetFields); ref:"primary" marks the ref:// field
+// that switches the editor to the shared-node UI, ref:"shared" marks fields
+// owned by the pool owner (hidden on a borrower's form).
 type clientConfig struct {
-	Server          string     `json:"server"`
-	Auth            authConfig `json:"auth"`
-	TLS             tlsConfig  `json:"tls"`
-	TimeoutMs       int64      `json:"timeoutMs"`
-	MaxRequestBytes int64      `json:"maxRequestBytes"`
-	MaxOperations   int        `json:"maxOperations"`
+	Server          string     `json:"server" label:"Server" desc:"Elasticsearch base URL (http/https), or ref://<id> to borrow a shared node" required:"true" ref:"primary"`
+	Auth            authConfig `json:"auth" label:"Auth" desc:"Request authentication policy" ref:"shared"`
+	TLS             tlsConfig  `json:"tls" label:"TLS" desc:"TLS verification policy (verification is always on)" ref:"shared"`
+	TimeoutMs       int64      `json:"timeoutMs" label:"Timeout (ms)" desc:"Per-request deadline in milliseconds (default 30000)" ref:"shared"`
+	MaxRequestBytes int64      `json:"maxRequestBytes" label:"Max Request Bytes" desc:"Maximum message body size in bytes (default 31457280)" ref:"shared"`
+	MaxOperations   int        `json:"maxOperations" label:"Max Operations" desc:"Maximum write operations per message (default 500)" ref:"shared"`
 }
 
 type authConfig struct {
-	Type     string `json:"type"`
-	APIKey   string `json:"apiKey"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Type     string `json:"type" label:"Type" desc:"Authentication type (empty disables auth)" component:"{\"type\":\"select\",\"options\":[{\"label\":\"(none)\",\"value\":\"\"},{\"label\":\"API key\",\"value\":\"apiKey\"},{\"label\":\"Basic\",\"value\":\"basic\"}]}"`
+	APIKey   string `json:"apiKey" label:"API Key" desc:"API key value, used when type=apiKey"`
+	Username string `json:"username" label:"Username" desc:"Basic auth username, used when type=basic"`
+	Password string `json:"password" label:"Password" desc:"Basic auth password, used when type=basic"`
 }
 
 type tlsConfig struct {
-	CAFile string `json:"caFile"`
+	CAFile string `json:"caFile" label:"CA File" desc:"Optional PEM CA bundle appended to the system trust store"`
 }
 
 // esClient is a shared Elasticsearch HTTP client. There is deliberately no
