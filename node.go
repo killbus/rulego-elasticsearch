@@ -27,7 +27,18 @@ type elasticsearchWriteNode struct {
 
 func (*elasticsearchWriteNode) Type() string { return componentType }
 
-func (*elasticsearchWriteNode) New() types.Node { return &elasticsearchWriteNode{} }
+// New returns a node prototype whose Config carries the real built-in
+// defaults. These values feed the editor form's DefaultValue so the UI
+// shows 30000/31457280/500 instead of 0; they do NOT change wire behavior,
+// because Map2Struct (ZeroFields) resets the struct before decoding in
+// Init and normalizeClientConfig re-applies the same defaults.
+func (*elasticsearchWriteNode) New() types.Node {
+	return &elasticsearchWriteNode{Config: clientConfig{
+		TimeoutMs:       defaultTimeoutMs,
+		MaxRequestBytes: defaultMaxRequestBytes,
+		MaxOperations:   defaultMaxOperations,
+	}}
+}
 
 func (*elasticsearchWriteNode) Def() types.ComponentForm {
 	relations := []string{types.Success, types.Failure}
