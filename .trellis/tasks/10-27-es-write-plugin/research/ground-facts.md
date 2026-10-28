@@ -55,7 +55,13 @@ before relying on a volatile value.
 
 ## Host / Plugin ABI (killbus/rulego-server-docker)
 
-- `plugin-abi.lock` recomputed: `sha256:70e937ace5bd5cce7271ef141267caa28397bd1932de6e97c8d3b9f48d27bc34`,
+- `plugin-abi.lock` recomputed: `lock_digest = sha256:e19c9657ede2e9da86aae38c2ab972d32ff22aa2f2c8f1aa327714967baf8f80`
+  (canonical manifest: `jq -S -c . plugin-abi.lock | tr -d '\r' | sha256sum`,
+  host `scripts/plugin-abi.sh lock_digest`; this is the value in
+  `plugin-abi-release.json` and in the SDK sidecars / runtime image label
+  `io.rulego.abi.lock.digest`). The raw file's `sha256sum` is
+  `sha256:70e937ace5bd5cce7271ef141267caa28397bd1932de6e97c8d3b9f48d27bc34` —
+  a byte-layout digest, not the contract value.
   `abi_id = abi-3e0c9d46dddaf6235cfe609d543222f07f8e1abf3374f0669bf703df85063885`.
   Identical at working tree and at packaging revision
   `006436e34d1fa2cd811f840547724fb0ace3605b` (main).

@@ -13,7 +13,11 @@ Commit fragmentation is consolidated at the merge gate.
    `plugin-abi-release.json` (copy of the current v1.0.0-ABI release record;
    verify `abi_id`/`lock_digest` against the live
    `killbus/rulego-server-docker@006436e` `plugin-abi.lock` — already
-   recomputed and matched on 2026-10-27).
+   recomputed and matched on 2026-10-27. `lock_digest` is the
+   canonical-manifest digest (`jq -S -c . plugin-abi.lock | tr -d '\r' |
+   sha256sum`, host `scripts/plugin-abi.sh lock_digest`), not the raw file's
+   `sha256sum`; the published record value is
+   `sha256:e19c9657ede2e9da86aae38c2ab972d32ff22aa2f2c8f1aa327714967baf8f80`).
 3. `plugin.go` with `var Plugins` (no-op `Init`, `Components()` returning
    the node prototype).
 4. `README.md` (contract, config reference, install into

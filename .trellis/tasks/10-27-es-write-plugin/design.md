@@ -23,8 +23,12 @@ server.
 ## ABI / build contract (facts, re-verified 2026-10-27)
 
 - Host: `killbus/rulego-server-docker` @ `006436e34d1fa2cd811f840547724fb0ace3605b`
-  (main), `plugin-abi.lock` recomputed digest
-  `sha256:70e937ace5bd5cce7271ef141267caa28397bd1932de6e97c8d3b9f48d27bc34`,
+  (main). `lock_digest` (canonical-manifest digest, the contract value):
+  `sha256:e19c9657ede2e9da86aae38c2ab972d32ff22aa2f2c8f1aa327714967baf8f80`,
+  computed as `jq -S -c . plugin-abi.lock | tr -d '\r' | sha256sum` per the host's
+  `scripts/plugin-abi.sh lock_digest`. (The raw file's `sha256sum` is
+  `sha256:70e937ace5bd5cce7271ef141267caa28397bd1932de6e97c8d3b9f48d27bc34` —
+  byte-layout digest, NOT the contract value.)
   `abi_id = abi-3e0c9d46dddaf6235cfe609d543222f07f8e1abf3374f0669bf703df85063885`.
 - RuleGo Core `v1.0.0` @ `45d1a6c4e1af594d7319dd11df9fa58bd48fd0e0`;
   Go 1.25.0, CGO=1, linux/amd64+arm64, glibc>=2.34.
