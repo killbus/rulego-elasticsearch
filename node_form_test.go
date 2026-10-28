@@ -11,9 +11,13 @@ import (
 )
 
 // formFields indexes the extracted component form fields by name.
+// It goes through New() exactly like the server does: engine
+// RuleComponentRegistry.GetComponentForms calls
+// reflect.GetComponentForm(component.New()), so the form (including
+// DefaultValue) is derived from the prototype New() returns.
 func formFields(t *testing.T) map[string]types.ComponentFormField {
 	t.Helper()
-	form := ruleReflect.GetComponentForm(&elasticsearchWriteNode{})
+	form := ruleReflect.GetComponentForm((&elasticsearchWriteNode{}).New())
 	if form.Type != "elasticsearchWrite" {
 		t.Fatalf("form type = %q", form.Type)
 	}
@@ -134,5 +138,66 @@ func TestEditorFormDoesNotChangeWireContract(t *testing.T) {
 	}
 	if err := normalizeClientConfig(&out); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestEditorFormShowsRealDefaults anchors that the form displays the real
+// built-in defaults (not 0): the extracted DefaultValue of each limit field
+// must equal the constant normalizeClientConfig applies to zero/negative
+// input. This is display-only — the wire path is covered by
+// TestEditorFormDoesNotChangeWireContract.
+func TestEditorFormShowsRealDefaults(t *testing.T) {
+	fields := formFields(t)
+	// maxOperations is an int in clientConfig; the limit bytes/timeout are
+	// int64. Normalize whatever numeric type DefaultValue carries to int64.
+	want := map[string]int64{
+		"timeoutMs":       defaultTimeoutMs,
+		"maxRequestBytes": defaultMaxRequestBytes,
+		"maxOperations":   int64(defaultMaxOperations),
+	}
+	for name, wantDefault := range want {
+		var got int64
+		switch v := fields[name].DefaultValue.(type) {
+		case int64:
+			got = v
+		case int:
+			got = int64(v)
+		default:
+			t.Fatalf("field %s DefaultValue = %#v (type %T), want a numeric default", name, fields[name].DefaultValue, fields[name].DefaultValue)
+		}
+		if got != wantDefault {
+			t.Fatalf("field %s DefaultValue = %d, want %d", name, got, wantDefault)
+		}
+	}
+}
+
+// TestFormDefaultsDoNotLeakIntoWireBehavior is the safety anchor for the
+// New() prefill: a configuration that omits the limit fields (what a user
+// gets by leaving the form defaults as-is is NOT the wire case — the wire
+// case is a config that simply lacks the keys) must still resolve to the
+// same defaults through normalizeClientConfig, and a config that does set
+// them must keep the user's value.
+func TestFormDefaultsDoNotLeakIntoWireBehavior(t *testing.T) {
+	var omitted clientConfig
+	if err := maps.Map2Struct(map[string]any{"server": "http://x:9200"}, &omitted); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalizeClientConfig(&omitted); err != nil {
+		t.Fatal(err)
+	}
+	if omitted.TimeoutMs != defaultTimeoutMs || omitted.MaxRequestBytes != defaultMaxRequestBytes || omitted.MaxOperations != defaultMaxOperations {
+		t.Fatalf("omitted fields = %+v, want built-in defaults", omitted)
+	}
+	var explicit clientConfig
+	if err := maps.Map2Struct(map[string]any{
+		"server": "http://x:9200", "timeoutMs": 1500, "maxOperations": 5,
+	}, &explicit); err != nil {
+		t.Fatal(err)
+	}
+	if err := normalizeClientConfig(&explicit); err != nil {
+		t.Fatal(err)
+	}
+	if explicit.TimeoutMs != 1500 || explicit.MaxOperations != 5 || explicit.MaxRequestBytes != defaultMaxRequestBytes {
+		t.Fatalf("explicit fields = %+v, want user values kept + missing one defaulted", explicit)
 	}
 }
